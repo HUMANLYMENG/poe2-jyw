@@ -467,6 +467,13 @@ You MUST output this exact JSON structure:
    - "T1生命的胸甲" → statType:"explicit"
    - "至少3条破裂词缀" → count group, each filter statType:"fractured"
 
+   ⚠️ "任意来源/综合/总和 + 数值" RULE:
+   When user says "任意来源XX总和>N" or "综合XX>N" or "XX加起来>N",
+   put the NUMBER DIRECTLY on the stat min/max. Do NOT create a separate statGroup.
+   Example: "能量护盾总和>20" → {"text":"# to maximum Energy Shield","min":20,"statType":null}
+   Example: "任意来源冰抗大于30" → {"text":"#% to Cold Resistance","min":30,"statType":null}
+   The system handles type expansion + weight sum automatically when min/max is set on a null-statType stat.
+
 5. "statGroups": additional group logic for weight/count/not queries. ALWAYS an array.
    Use the flat "stats" array for individual filters (T1电点伤, 生命80+, etc.)
    Use statGroups ONLY for special group logic (weight sum, count, not).
@@ -681,18 +688,23 @@ function buildTradeQuery(intent: AiIntent, stats: StatEntry[]): TradeSearchQuery
   // Expand filters: when statType is null, duplicate for all types
   // CRITICAL: PoE API uses type-prefixed IDs (explicit.stat_XXX), not a "type" field.
   // We must rebuild the stat ID with the correct type prefix for each variant.
+  // Also filters out type variants whose ID doesn't exist in the stats API.
   const expandFilters = (filters: StatFilter[], originalIntents: { statType?: string | null }[]): StatFilter[] => {
+    // Build a set of valid stat IDs for fast lookup
+    const validIds = new Set(stats.map(s => s.id))
     const result: StatFilter[] = []
     for (let i = 0; i < filters.length; i++) {
       const f = filters[i]
       const intent = originalIntents[i]
       if (!intent?.statType) {
         // Extract numeric stat ID from the prefix, then rebuild for each type
-        // e.g. "explicit.stat_4220027924" → numeric = "stat_4220027924"
         const idParts = String(f.id).split(".")
         const numericId = idParts.length > 1 ? idParts.slice(1).join(".") : idParts[0]
         for (const t of ALL_STAT_TYPES) {
-          result.push({ ...f, id: t + "." + numericId, type: t })
+          const typedId = t + "." + numericId
+          if (validIds.has(typedId)) {
+            result.push({ ...f, id: typedId, type: t })
+          }
         }
       } else {
         result.push(f)
@@ -719,7 +731,9 @@ function buildTradeQuery(intent: AiIntent, stats: StatEntry[]): TradeSearchQuery
         const variants = expandFilters([f], [s])
         if (!variants.length) continue
         if (s.min != null || s.max != null) {
-          statGroups.push({ type: "weight", filters: variants, value: { min: s.min ?? undefined, max: s.max ?? undefined } })
+          // Weight group: strip individual filter values, constraint is on group level
+          const strippedVariants = variants.map(v => ({ ...v, value: {} }))
+          statGroups.push({ type: "weight", filters: strippedVariants, value: { min: s.min ?? undefined, max: s.max ?? undefined } })
         } else {
           statGroups.push({ type: "count", filters: variants, value: { min: 1 } })
         }
