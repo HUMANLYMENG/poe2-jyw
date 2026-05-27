@@ -1,0 +1,31 @@
+{
+  "name": "poe2-trade-enhancer",
+  "displayName": "PoE2 Trade Enhancer",
+  "version": "0.1.0",
+  "description": "AI-powered trade enhancement for Path of Exile 2 - natural language search, CN↔EN translation, tier display",
+  "author": "JOJO",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "idb": "^8.0.0",
+    "plasmo": "^0.90.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "typescript": "^5.5.0"
+  },
+  "plasmo": {
+    "manifest": {
+      "web_accessible_resources": [
+        {
+          "resources": ["poe2_en_zh.json"],
+          "matches": ["<all_urls>"]
+        }
+      ]
+    }
+  }
+}
