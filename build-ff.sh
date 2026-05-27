@@ -12,6 +12,15 @@ cp public/poe2_en_zh.json "$BUILD_DIR/"
 cp public/poe2_zh_en.json "$BUILD_DIR/"
 cp public/poe2-base-affixes.json "$BUILD_DIR/"
 
+echo "=== Replacing icons ==="
+for size in 16 32 48 64 128; do
+  hash=$(ls "$BUILD_DIR"/icon${size}.plasmo.*.png 2>/dev/null | head -1)
+  if [ -n "$hash" ] && [ -f "assets/icon${size}.png" ]; then
+    cp "assets/icon${size}.png" "$hash"
+    echo "  icon${size} OK"
+  fi
+done
+
 echo "=== Patching manifest permissions ==="
 python3 -c "
 import json

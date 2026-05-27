@@ -2,7 +2,7 @@
   <div class="settings-panel">
     <!-- AI API Configuration -->
     <div class="section">
-      <h3 class="section-title">🤖 AI API 配置</h3>
+      <h3 class="section-title">AI API 配置</h3>
       <p class="section-desc">接入你自己的 AI API 来驱动自然语言搜索</p>
 
       <div class="form-group">
@@ -42,7 +42,7 @@
 
     <!-- Display Options -->
     <div class="section">
-      <h3 class="section-title">👁️ 显示选项</h3>
+      <h3 class="section-title">显示选项</h3>
       <label class="toggle-row">
         <input type="checkbox" v-model="settings.showChineseAffixes" />
         <span>显示中文词缀翻译</span>
@@ -60,15 +60,15 @@
     <!-- Save -->
     <div class="actions">
       <button class="save-btn" @click="save" :disabled="saving">
-        <span v-if="saving">⏳ 保存中...</span>
-        <span v-else>💾 保存设置</span>
+        <span v-if="saving">保存中...</span>
+        <span v-else>保存设置</span>
       </button>
       <span v-if="saveStatus" class="save-status" :class="saveStatusType">{{ saveStatus }}</span>
     </div>
 
     <!-- About -->
     <div class="section about">
-      <h3 class="section-title">📦 关于</h3>
+      <h3 class="section-title">关于</h3>
       <p>PoE2 Trade Enhancer v0.1.0</p>
       <p>纯前端 · 无需后端 · 你的数据你做主</p>
     </div>
@@ -99,10 +99,9 @@ async function save(): Promise<void> {
   saving.value = true
   saveStatus.value = ""
 
-  // Validate API key format
   const key = settings.value.aiProvider.apiKey
   if (!key) {
-    saveStatus.value = "⚠️ API Key 不能为空"
+    saveStatus.value = "API Key 不能为空"
     saveStatusType.value = "err"
     saving.value = false
     return
@@ -116,14 +115,13 @@ async function save(): Promise<void> {
     if (resp?.status !== "success") {
       throw new Error(resp?.error || "Unknown error")
     }
-    // Background now returns verified settings; use them to update local state
     if (resp.result?.aiProvider) {
       settings.value.aiProvider = resp.result.aiProvider
     }
-    saveStatus.value = "✅ 已保存 (" + (resp.result?.aiProvider?.apiKey ? "Key已设置" : "无Key") + ")"
+    saveStatus.value = "已保存 (" + (resp.result?.aiProvider?.apiKey ? "Key已设置" : "无Key") + ")"
     saveStatusType.value = "ok"
   } catch (e: any) {
-    saveStatus.value = "❌ 保存失败: " + (e?.message || "未知错误")
+    saveStatus.value = "保存失败: " + (e?.message || "未知错误")
     saveStatusType.value = "err"
   } finally {
     saving.value = false
@@ -151,7 +149,7 @@ function usePreset(name: string): void {
     settings.value.aiProvider = {
       ...settings.value.aiProvider,
       ...preset,
-      apiKey: settings.value.aiProvider.apiKey, // keep existing key
+      apiKey: settings.value.aiProvider.apiKey,
     }
     if (name === "omlx") {
       settings.value.aiProvider.apiKey = "local"
@@ -162,27 +160,164 @@ function usePreset(name: string): void {
 </script>
 
 <style scoped>
-.settings-panel { padding: 12px; }
-.section { margin-bottom: 20px; }
-.section-title { font-size: 14px; font-weight: 600; color: #cca; margin-bottom: 4px; }
-.section-desc { font-size: 11px; color: #556; margin-bottom: 12px; }
-.form-group { margin-bottom: 10px; }
-.form-group label { display: block; font-size: 11px; color: #778; margin-bottom: 3px; }
-.form-group input { width: 100%; background: #1a1a2e; border: 1px solid #2a2a4e; border-radius: 4px; color: #ccc; padding: 6px 10px; font-size: 12px; font-family: monospace; }
-.form-group input:focus { outline: none; border-color: #4a4a8e; }
-.presets { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.presets-label { font-size: 11px; color: #556; }
-.preset-btn { background: #1a1a2e; border: 1px solid #2a2a4e; color: #778; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-.preset-btn:hover { background: #2a2a4e; color: #99a; }
-.toggle-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; color: #998; cursor: pointer; }
-.toggle-row input[type="checkbox"] { accent-color: #4a4a8e; }
-.actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-.save-btn { background: #2a2a5e; color: #aac; border: 1px solid #3a3a6e; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px; min-width: 120px; }
-.save-btn:hover:not(:disabled) { background: #3a3a7e; color: #fff; }
-.save-btn:disabled { opacity: 0.5; }
-.save-status { font-size: 13px; font-weight: 600; }
-.save-status.ok { color: #6a6; }
-.save-status.err { color: #e66; }
-.about { margin-top: 16px; padding-top: 16px; border-top: 1px solid #2a2a4e; }
-.about p { font-size: 11px; color: #445; margin: 2px 0; }
+/* ============================================
+   PoE Trade Site Aesthetic
+   ============================================ */
+
+.settings-panel {
+  padding: 10px;
+}
+
+.section {
+  margin-bottom: 18px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c8aa6e;
+  margin-bottom: 3px;
+}
+
+.section-desc {
+  font-size: 10px;
+  color: #5a4a30;
+  margin-bottom: 10px;
+}
+
+/* ---- Form ---- */
+.form-group {
+  margin-bottom: 8px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 10px;
+  color: #6a5a40;
+  margin-bottom: 2px;
+}
+
+.form-group input {
+  width: 100%;
+  background: #121212;
+  border: 1px solid #4a3820;
+  border-radius: 2px;
+  color: #c0b090;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  box-sizing: border-box;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #8b7030;
+}
+
+.form-group input::placeholder {
+  color: #3a2818;
+}
+
+/* ---- Presets ---- */
+.presets {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.presets-label {
+  font-size: 10px;
+  color: #5a4a30;
+}
+
+.preset-btn {
+  background: #0f0f0f;
+  border: 1px solid #4a3820;
+  color: #7a6a50;
+  padding: 2px 8px;
+  border-radius: 1px;
+  cursor: pointer;
+  font-size: 10px;
+  transition: all 0.12s;
+}
+
+.preset-btn:hover {
+  background: #1a1410;
+  border-color: #6c4825;
+  color: #c8aa6e;
+}
+
+/* ---- Toggles ---- */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: #9a8a60;
+  cursor: pointer;
+}
+
+.toggle-row input[type="checkbox"] {
+  accent-color: #8b7030;
+}
+
+/* ---- Save ---- */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.save-btn {
+  background: #1a1410;
+  color: #c8aa6e;
+  border: 1px solid #6c4825;
+  padding: 7px 18px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 110px;
+  transition: all 0.15s;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #2a2018;
+  border-color: #8b7030;
+  color: #e0c080;
+}
+
+.save-btn:disabled {
+  opacity: 0.4;
+}
+
+.save-status {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.save-status.ok {
+  color: #7a9a5a;
+}
+
+.save-status.err {
+  color: #c86464;
+}
+
+/* ---- About ---- */
+.about {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #3a2818;
+}
+
+.about p {
+  font-size: 10px;
+  color: #4a3a20;
+  margin: 1px 0;
+}
 </style>

@@ -444,14 +444,29 @@ You MUST output this exact JSON structure:
    - "#% to Fire Resistance"
    Use # as placeholder. Copy the wording exactly from in-game.
 3. "min"/"max" = the numeric threshold. null if not specified.
-4. "statType": the stat category. Valid values:
-   - "explicit": normal affix (词缀/词条) — DEFAULT, most common
-   - "implicit": item base implicit (基底/底子/自带)
-   - "pseudo": pseudo/calculated stat (伪/综合)
-   - "enchant": enchant (附魔)
-   - "fractured": fractured mod (破裂/裂痕)
-   - null: any type (default when user doesn't specify)
-   E.g. "基底抗性戒指" → statType:"implicit" for the resistance stat.
+4. "statType": the stat category. ⚠️ CRITICAL — detect from user wording:
+
+   Keywords → statType mapping:
+   - "词缀" / "词条" / "T1" / "T2" / "随机词" → "explicit" (黄装词缀)
+   - "基底" / "底子" / "自带" / "原生" → "implicit" (装备基底自带)
+   - "附魔" / "附魔词" → "enchant" (附魔)
+   - "破裂" / "裂痕" / "固定" / "固定词" / "固定住" → "fractured" (破裂/固定词)
+   - "亵渎" / "亵渎词" / "desecrated" → "desecrated" (亵渎词)
+   - "伪" / "综合" / "合计" → "pseudo" (计算值)
+   - "模糊" / "任意" / "不限定" / "任意来源" / no keyword → null (搜索全部类型)
+   
+   ⚠️ "null" = match ALL stat types (explicit + implicit + enchant + fractured)
+   Use null when user doesn't specify, or when they say "模糊"/"任意来源".
+   
+   Examples:
+   - "基底抗性戒指" → statType:"implicit" for the resistance stat
+   - "固定住 攻速的弓" → statType:"fractured" for attack speed
+   - "附魔施法速度的手套" → statType:"enchant" for cast speed
+   - "模糊搜索冰抗大于50" → statType:null (search all types)
+   - "混沌抗性词缀的项链" on Ming's Heart → statType:"implicit" (明心项链的混沌抗是基底)
+   - "T1生命的胸甲" → statType:"explicit"
+   - "至少3条破裂词缀" → count group, each filter statType:"fractured"
+
 5. "statGroups": additional group logic for weight/count/not queries. ALWAYS an array.
    Use the flat "stats" array for individual filters (T1电点伤, 生命80+, etc.)
    Use statGroups ONLY for special group logic (weight sum, count, not).
@@ -640,7 +655,11 @@ function buildTradeQuery(intent: AiIntent, stats: StatEntry[]): TradeSearchQuery
   // Build stat groups
   const statGroups: StatGroup[] = []
 
-  // Helper to convert a stat intent to a filter
+  // Helper to convert a stat intent to filter(s).
+  // When statType is null (user wants "all types"), returns multiple filters
+  // because PoE API defaults to "explicit" when type is omitted.
+  const ALL_STAT_TYPES = ["explicit", "implicit", "enchant", "fractured", "desecrated"] as const
+
   const toFilter = (s: { text: string; min: number | null; max: number | null; statType?: string | null }): StatFilter | null => {
     if (!s.text) return null
     const matched = fuzzyMatchStat(s.text, stats)
@@ -653,15 +672,63 @@ function buildTradeQuery(intent: AiIntent, stats: StatEntry[]): TradeSearchQuery
       },
       disabled: false,
     }
-    if (s.statType) filter.type = s.statType as StatFilter["type"]
+    if (s.statType) {
+      filter.type = s.statType as StatFilter["type"]
+    }
     return filter
   }
 
-  // Flat stats → always AND group (individual filters like T1电点伤, 生命80+)
+  // Expand filters: when statType is null, duplicate for all types
+  // CRITICAL: PoE API uses type-prefixed IDs (explicit.stat_XXX), not a "type" field.
+  // We must rebuild the stat ID with the correct type prefix for each variant.
+  const expandFilters = (filters: StatFilter[], originalIntents: { statType?: string | null }[]): StatFilter[] => {
+    const result: StatFilter[] = []
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i]
+      const intent = originalIntents[i]
+      if (!intent?.statType) {
+        // Extract numeric stat ID from the prefix, then rebuild for each type
+        // e.g. "explicit.stat_4220027924" → numeric = "stat_4220027924"
+        const idParts = String(f.id).split(".")
+        const numericId = idParts.length > 1 ? idParts.slice(1).join(".") : idParts[0]
+        for (const t of ALL_STAT_TYPES) {
+          result.push({ ...f, id: t + "." + numericId, type: t })
+        }
+      } else {
+        result.push(f)
+      }
+    }
+    return result
+  }
+
+  // Check if a stat intent needs expansion (statType is null)
+  const needsExpansion = (intent: { statType?: string | null }): boolean => !intent.statType
+
+  // Flat stats → process individually
+  // Expanded (null statType) → COUNT group (min=1, "any type")
+  // Non-expanded → AND group
   if (intent.stats?.length) {
-    const filters = intent.stats.map(toFilter).filter(Boolean) as StatFilter[]
-    if (filters.length) {
-      statGroups.push({ type: "and", filters })
+    const andFilters: StatFilter[] = []
+    for (let i = 0; i < intent.stats.length; i++) {
+      const s = intent.stats[i]
+      const f = toFilter(s)
+      if (!f) continue
+      if (needsExpansion(s)) {
+        // statType null with min/max → WEIGHT group (sum across types)
+        // statType null without bounds → COUNT group (min=1, any type matches)
+        const variants = expandFilters([f], [s])
+        if (!variants.length) continue
+        if (s.min != null || s.max != null) {
+          statGroups.push({ type: "weight", filters: variants, value: { min: s.min ?? undefined, max: s.max ?? undefined } })
+        } else {
+          statGroups.push({ type: "count", filters: variants, value: { min: 1 } })
+        }
+      } else {
+        andFilters.push(f)
+      }
+    }
+    if (andFilters.length) {
+      statGroups.push({ type: "and", filters: andFilters })
     }
   }
 
@@ -669,10 +736,11 @@ function buildTradeQuery(intent: AiIntent, stats: StatEntry[]): TradeSearchQuery
   if (intent.statGroups?.length) {
     for (const group of intent.statGroups) {
       const filters = group.filters.map(toFilter).filter(Boolean) as StatFilter[]
-      if (filters.length) {
+      const expanded = expandFilters(filters, group.filters)
+      if (expanded.length) {
         statGroups.push({
           type: group.type as StatGroup["type"],
-          filters,
+          filters: expanded,
           value: (group.value?.min != null || group.value?.max != null)
             ? { min: group.value.min, max: group.value.max }
             : undefined,
@@ -1107,15 +1175,21 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
           return `${label}${range}`
         })
 
-      // ---- Translation: match stat IDs → English text → Chinese ----
+      // ---- Translation: match stat IDs → English text → Chinese + type ----
       await loadDictionary()
       const allMatchedFilters = query.query.stats?.flatMap(g => g.filters).filter(f => !f.disabled) || []
       const translations: Record<string, string> = {}
+      const statTypes: Record<string, string> = {}
       for (const f of allMatchedFilters) {
         const statEntry = stats.find(s => s.id === f.id)
         if (statEntry?.text) {
           const zh = translateEnToZh(statEntry.text)
-          if (zh) translations[statEntry.text] = zh
+          if (zh) {
+            // Key by stat text + type so different types don't collapse
+            const key = statEntry.text + (f.type ? "::" + f.type : "")
+            translations[key] = zh
+            if (f.type) statTypes[key] = f.type
+          }
         }
       }
 
@@ -1162,6 +1236,7 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
           matched,
           unmatched: unmatched.map(s => s.text),
           translations,
+          statTypes,
           excluded,
           statSummary,
         },

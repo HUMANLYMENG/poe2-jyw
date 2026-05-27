@@ -4,7 +4,7 @@
     <div class="search-input-area">
       <textarea
         v-model="searchText"
-        placeholder="描述你要找的装备，例如: T1电点伤戒指 生命80以上 抗性"
+        placeholder="描述装备，如：T1电点伤戒指 生命80以上 抗性"
         rows="3"
         :disabled="loading"
         @keydown.enter.exact.prevent="search"
@@ -12,9 +12,9 @@
       />
       <div class="input-actions">
         <span class="league-badge">{{ league }}</span>
-        <button class="search-btn" :disabled="loading || !searchText.trim()" @click="search">
-          <span v-if="!loading">🔍 搜索</span>
-          <span v-else class="spinner">⏳</span>
+        <button class="gen-btn" :disabled="loading || !searchText.trim()" @click="search">
+          <span v-if="!loading">生成</span>
+          <span v-else>...</span>
         </button>
       </div>
     </div>
@@ -27,13 +27,13 @@
 
     <!-- Loading -->
     <div v-if="loading" class="loading-hint">
-      <p>AI 正在解析搜索条件...</p>
+      <p>解析中...</p>
     </div>
 
     <!-- Result Preview -->
     <div v-if="parsedQuery && !loading" class="result-preview">
       <div v-if="parsedQuery.explanation" class="explanation">
-        💡 {{ parsedQuery.explanation }}
+        {{ parsedQuery.explanation }}
       </div>
 
       <div class="query-summary">
@@ -58,19 +58,24 @@
           <span class="value">{{ parsedQuery.matched }} 个匹配</span>
         </div>
         <div class="summary-row" v-if="parsedQuery.translations && Object.keys(parsedQuery.translations).length">
-          <span class="label">📝 中文</span>
-          <span class="value zh-stats">{{ Object.values(parsedQuery.translations).join(' · ') }}</span>
+          <span class="label">中文</span>
+          <span class="value zh-stats">
+            <span v-for="(zh, en) in parsedQuery.translations" :key="en" class="zh-item">
+              <span class="type-badge-sm">{{ typeLabel(parsedQuery.statTypes?.[en]) }}</span>
+              {{ zh }}
+            </span>
+          </span>
         </div>
         <div class="summary-row" v-if="parsedQuery.unmatched?.length">
-          <span class="label">⚠️ 未匹配</span>
+          <span class="label">未匹配</span>
           <span class="value unmatched">{{ parsedQuery.unmatched.join(', ') }}</span>
         </div>
         <div class="summary-row" v-if="parsedQuery.excluded?.length">
-          <span class="label">🚫 已排除（不存在于{{ parsedQuery.type }}）</span>
+          <span class="label">已排除（不存在于{{ parsedQuery.type }}）</span>
           <span class="value unmatched">{{ parsedQuery.excluded.join(' · ') }}</span>
         </div>
         <div class="summary-row" v-if="parsedQuery.statSummary?.length">
-          <span class="label">📏 约束</span>
+          <span class="label">约束</span>
           <span class="value stat-summary">{{ parsedQuery.statSummary.join(' · ') }}</span>
         </div>
         <div class="summary-row" v-if="parsedQuery.query?.filters?.trade_filters?.filters?.price">
@@ -89,17 +94,17 @@
 
       <div class="result-actions">
         <button class="apply-btn" @click="executeSearch" :disabled="executingSearch">
-          {{ executingSearch ? '⏳ 搜索中...' : '📊 在交易页面查看结果' }}
+          {{ executingSearch ? '跳转中...' : '在交易页查看结果' }}
         </button>
-        <button class="copy-btn" @click="copyQuery">📋 复制查询</button>
+        <button class="copy-btn" @click="copyQuery">复制</button>
       </div>
     </div>
 
     <!-- Search History -->
     <div v-if="history.length" class="history-panel">
       <div class="history-header">
-        <span>🕐 历史搜索</span>
-        <button class="clear-history-btn" @click="clearHistory" title="清除历史">✕</button>
+        <span>历史</span>
+        <button class="clear-history-btn" @click="clearHistory" title="清除历史">清除</button>
       </div>
       <div
         v-for="h in history.slice(0, 10)"
@@ -114,9 +119,8 @@
 
     <!-- Empty State -->
     <div v-if="!parsedQuery && !loading && !error" class="empty-state">
-      <p>输入中文搜索条件，AI 会自动解析为精确搜索</p>
+      <p>输入中文描述，AI 自动生成精确搜索条件</p>
       <div class="examples">
-        <p class="examples-title">试试：</p>
         <button
           v-for="ex in examples"
           :key="ex"
@@ -150,6 +154,7 @@ const parsedQuery = ref<{
   matched?: number
   unmatched?: string[]
   translations?: Record<string, string>
+  statTypes?: Record<string, string>
   warnings?: string[]
   excluded?: string[]
   statSummary?: string[]
@@ -180,22 +185,19 @@ async function search(): Promise<void> {
     })
 
     if (response.status !== "success") {
-      // Make 401/403 errors actionable
       const raw = response.error || "AI search failed"
       if (raw.includes("401") || raw.includes("403") || raw.includes("auth")) {
-        throw new Error("🔑 API 鉴权失败 — 请到 ⚙️ 设置检查 API Key 是否正确（通常以 sk- 开头）")
+        throw new Error("API 鉴权失败 — 请到设置检查 API Key")
       }
       if (raw.includes("404") || raw.includes("not found")) {
-        throw new Error("🔗 API 端点不存在 — 请检查设置中的 API URL 是否完整")
+        throw new Error("API 端点不存在 — 请检查 API URL")
       }
       throw new Error(raw)
     }
 
-    // Deep-clone to strip any non-serializable artifacts before Vue reactivity
     parsedQuery.value = JSON.parse(JSON.stringify(response.result))
-    // Validate: AI must return a query object
     if (!parsedQuery.value?.query) {
-      error.value = "⚠️ AI 返回的结果无法解析为搜索条件，请尝试更具体的描述"
+      error.value = "AI 返回的结果无法解析，请重试"
       parsedQuery.value = null
     }
   } catch (e) {
@@ -213,7 +215,6 @@ async function executeSearch(): Promise<void> {
   error.value = ""
 
   try {
-    // Build full query
     const fullQuery: TradeSearchQuery = {
       query: {
         status: parsedQuery.value.query.status || { option: "online" },
@@ -231,13 +232,7 @@ async function executeSearch(): Promise<void> {
       throw new Error(response.error || "Search failed")
     }
 
-    const { id, total } = response.result as {
-      id: string
-      result: string[]
-      total: number
-    }
-
-    // Navigate to the native PoE trade results page
+    const { id } = response.result as { id: string; result: string[]; total: number }
     const tradeUrl = `https://www.pathofexile.com/trade2/search/${props.league}/${id}`
     window.location.href = tradeUrl
   } catch (e) {
@@ -250,7 +245,6 @@ async function executeSearch(): Promise<void> {
 function copyQuery(): void {
   if (!parsedQuery.value) return
   const text = JSON.stringify(parsedQuery.value, null, 2)
-  // Try modern clipboard API first, fallback to execCommand
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
   } else {
@@ -267,14 +261,6 @@ function fallbackCopy(text: string): void {
   ta.select()
   document.execCommand("copy")
   document.body.removeChild(ta)
-}
-
-function countStats(stats: NonNullable<TradeSearchQuery["query"]["stats"]>): number {
-  let count = 0
-  for (const group of stats) {
-    count += group.filters?.filter((f) => !f.disabled).length || 0
-  }
-  return count
 }
 
 function formatPrice(price: { min?: number; max?: number; option?: string }): string {
@@ -307,363 +293,261 @@ function formatTimeAgo(ts: number): string {
   return `${Math.floor(diff / 86400)}天前`
 }
 
+const TYPE_CN: Record<string, string> = {
+  explicit: "词缀", implicit: "基底", enchant: "附魔", fractured: "固定", desecrated: "亵渎", pseudo: "综合",
+}
+function typeLabel(t: string | undefined): string {
+  if (!t) return ""
+  return TYPE_CN[t] || t
+}
+
 onMounted(() => {
   loadHistory()
 })
-
-function timeAgo(dateStr?: string): string {
-  if (!dateStr) return ""
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diff = Math.floor((now - then) / 1000)
-
-  if (diff < 60) return `${diff}s ago`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  return `${Math.floor(diff / 86400)}d ago`
-}
 </script>
 
 <style scoped>
+/* ============================================
+   PoE Trade Site Aesthetic
+   ============================================ */
+
 .ai-search {
-  padding: 12px;
+  padding: 10px;
 }
 
+/* ---- Search Input ---- */
 .search-input-area {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 textarea {
   width: 100%;
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
-  border-radius: 6px;
-  color: #ccc;
-  padding: 10px;
-  font-size: 13px;
+  background: #121212;
+  border: 1px solid #4a3820;
+  border-radius: 2px;
+  color: #c0b090;
+  padding: 9px;
+  font-size: 12px;
   resize: vertical;
-  font-family: inherit;
-  min-height: 60px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
+  min-height: 58px;
+  line-height: 1.5;
+  box-sizing: border-box;
 }
 
 textarea:focus {
   outline: none;
-  border-color: #4a4a8e;
+  border-color: #8b7030;
 }
 
 textarea::placeholder {
-  color: #555;
+  color: #4a3a20;
 }
 
 .input-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .league-badge {
-  font-size: 11px;
-  color: #556;
-  background: #1a1a2e;
-  padding: 3px 8px;
-  border-radius: 4px;
+  font-size: 10px;
+  color: #5a4a30;
+  background: #111;
+  padding: 2px 7px;
+  border: 1px solid #3a2818;
+  border-radius: 1px;
+  letter-spacing: 0.02em;
 }
 
-.search-btn {
-  background: #2a2a5e;
-  color: #aac;
-  border: 1px solid #3a3a6e;
-  padding: 6px 16px;
-  border-radius: 6px;
+/* ---- Generate Button ---- */
+.gen-btn {
+  background: #1a1410;
+  color: #c8aa6e;
+  border: 1px solid #6c4825;
+  padding: 5px 16px;
+  border-radius: 2px;
   cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  transition: all 0.15s;
 }
 
-.search-btn:hover:not(:disabled) {
-  background: #3a3a7e;
-  color: #fff;
+.gen-btn:hover:not(:disabled) {
+  background: #2a2018;
+  border-color: #8b7030;
+  color: #e0c080;
+  box-shadow: 0 0 6px rgba(175, 139, 76, 0.15);
 }
 
-.search-btn:disabled {
-  opacity: 0.4;
+.gen-btn:disabled {
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { opacity: 1; }
-  50% { opacity: 0.3; }
-  to { opacity: 1; }
-}
-
+/* ---- Error ---- */
 .error-box {
-  background: #2a1515;
+  background: #1a0f0f;
   border: 1px solid #6a2a2a;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 12px;
+  border-radius: 2px;
+  padding: 9px;
+  margin-bottom: 10px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  color: #e88;
-  font-size: 12px;
+  color: #c86464;
+  font-size: 11px;
 }
 
 .error-box button {
   background: none;
   border: none;
-  color: #e88;
+  color: #c86464;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  padding: 0 4px;
 }
 
+/* ---- Loading ---- */
 .loading-hint {
   text-align: center;
-  padding: 20px;
-  color: #556;
-  font-size: 13px;
+  padding: 18px;
+  color: #5a4a30;
+  font-size: 12px;
 }
 
+/* ---- Result Preview ---- */
 .result-preview {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .explanation {
-  background: #1a2a1a;
-  border: 1px solid #2a4a2a;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: #8b8;
+  background: #11180c;
+  border: 1px solid #3a5a2a;
+  border-radius: 2px;
+  padding: 7px 9px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #7a9a5a;
+  line-height: 1.5;
 }
 
 .query-summary {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
+  background: #0f0f0f;
+  border: 1px solid #3a2818;
+  border-radius: 2px;
+  padding: 7px 9px;
+  margin-bottom: 8px;
 }
 
 .summary-row {
   display: flex;
   justify-content: space-between;
-  padding: 3px 0;
-  font-size: 12px;
+  padding: 2px 0;
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .summary-row .label {
-  color: #666;
+  color: #5a4a30;
+  flex-shrink: 0;
+  margin-right: 8px;
 }
 
 .summary-row .value {
-  color: #aa8;
-  font-weight: 600;
+  color: #b0a080;
+  font-weight: 500;
+  text-align: right;
 }
 
 .summary-row .value.unmatched {
-  color: #e88;
+  color: #c86464;
   font-weight: 400;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .summary-row .value.stat-summary {
-  color: #ad8;
-  font-weight: 600;
-  font-size: 11px;
+  color: #7a9a5a;
+  font-weight: 500;
+  font-size: 10px;
 }
 
 .summary-row .value.type-badge {
-  color: #ace;
-  background: #1a2a3a;
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  color: #c8aa6e;
+  background: #1a1410;
+  padding: 1px 7px;
+  border: 1px solid #4a3820;
+  border-radius: 1px;
+  font-size: 10px;
 }
 
 .summary-row .value.eq-badge {
-  color: #cea;
-  background: #1a2a1a;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11px;
+  color: #8a9a6a;
+  background: #11140c;
+  padding: 1px 5px;
+  border: 1px solid #3a4a2a;
+  border-radius: 1px;
+  font-size: 10px;
 }
 
 .summary-row .value.tag-list {
-  color: #dca;
-  font-size: 11px;
+  color: #a09070;
+  font-size: 10px;
 }
 
+/* ---- Action Buttons ---- */
 .result-actions {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .apply-btn {
   flex: 1;
-  background: #2a4a2a;
-  color: #8b8;
-  border: 1px solid #3a6a3a;
-  padding: 8px 12px;
-  border-radius: 6px;
+  background: #14140c;
+  color: #a0b870;
+  border: 1px solid #4a5a2a;
+  padding: 7px 10px;
+  border-radius: 2px;
   cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s;
 }
 
 .apply-btn:hover:not(:disabled) {
-  background: #3a6a3a;
-  color: #afa;
+  background: #1a200e;
+  border-color: #6a7a3a;
+  color: #b8d080;
 }
 
 .apply-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
 }
 
 .copy-btn {
-  background: #1a1a2e;
-  color: #666;
-  border: 1px solid #2a2a4e;
-  padding: 8px 12px;
-  border-radius: 6px;
+  background: #0f0f0f;
+  color: #5a4a30;
+  border: 1px solid #3a2818;
+  padding: 7px 12px;
+  border-radius: 2px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  transition: all 0.15s;
 }
 
 .copy-btn:hover {
-  background: #2a2a4e;
-  color: #99a;
+  background: #1a1a1a;
+  color: #8b7030;
+  border-color: #4a3820;
 }
 
-.search-results {
-  margin-top: 8px;
-}
-
-.results-header {
-  font-size: 11px;
-  color: #556;
-  padding: 4px 0;
-  border-bottom: 1px solid #2a2a4e;
-  margin-bottom: 8px;
-}
-
-.result-item {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
-  border-radius: 6px;
-  padding: 8px;
-  margin-bottom: 6px;
-}
-
-.item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-}
-
-.item-name {
-  font-size: 12px;
-  color: #dda;
-  font-weight: 600;
-}
-
-.item-price {
-  font-size: 11px;
-  color: #ad8;
-  background: #1a2a1a;
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-
-.item-mods {
-  font-size: 11px;
-}
-
-.mod-text {
-  display: block;
-  color: #778;
-  line-height: 1.4;
-}
-
-.mod-more {
-  color: #445;
-  font-size: 10px;
-}
-
-.item-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
-}
-
-.whisper-btn {
-  font-size: 11px;
-  color: #8ab;
-  text-decoration: none;
-  padding: 2px 8px;
-  background: #1a2a3a;
-  border-radius: 3px;
-}
-
-.whisper-btn:hover {
-  background: #2a3a5a;
-}
-
-.item-indexed {
-  font-size: 10px;
-  color: #445;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 24px 12px;
-  color: #556;
-  font-size: 12px;
-}
-
-.examples {
-  margin-top: 12px;
-}
-
-.examples-title {
-  color: #445;
-  margin-bottom: 8px;
-}
-
-.example-btn {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
-  color: #778;
-  padding: 6px 10px;
-  margin-bottom: 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: all 0.1s;
-}
-
-.example-btn:hover {
-  background: #2a2a4e;
-  color: #99a;
-}
-
-/* ---- History Panel ---- */
-
+/* ---- History ---- */
 .history-panel {
-  margin-top: 16px;
-  border-top: 1px solid #2a2a4e;
+  margin-top: 14px;
+  border-top: 1px solid #3a2818;
   padding-top: 10px;
 }
 
@@ -671,64 +555,123 @@ textarea::placeholder {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: #667;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #5a4a30;
+  font-weight: 500;
 }
 
 .clear-history-btn {
   background: none;
   border: none;
-  color: #556;
+  color: #4a3820;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 10px;
   padding: 2px 6px;
-  border-radius: 3px;
+  transition: color 0.15s;
 }
 
 .clear-history-btn:hover {
-  color: #e88;
-  background: #2a1515;
+  color: #c86464;
 }
 
 .history-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 8px;
-  border-radius: 4px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 1px;
   cursor: pointer;
-  transition: background 0.15s;
-  margin-bottom: 2px;
+  transition: all 0.12s;
+  margin-bottom: 1px;
 }
 
 .history-item:hover {
-  background: #1a2a3a;
+  background: #12120c;
+  border-color: #3a2818;
 }
 
 .history-text {
-  color: #99a;
-  font-size: 12px;
+  color: #9a8a60;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-  margin-right: 8px;
+  margin-right: 6px;
 }
 
 .history-meta {
-  color: #556;
-  font-size: 10px;
+  color: #4a3a20;
+  font-size: 9px;
   white-space: nowrap;
 }
 
-/* ---- Translation ---- */
+/* ---- Empty State ---- */
+.empty-state {
+  text-align: center;
+  padding: 20px 10px;
+  color: #5a4a30;
+  font-size: 11px;
+}
 
+.examples {
+  margin-top: 10px;
+}
+
+.example-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #0f0f0f;
+  border: 1px solid #3a2818;
+  color: #7a6a50;
+  padding: 5px 9px;
+  margin-bottom: 3px;
+  border-radius: 1px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.1s;
+}
+
+.example-btn:hover {
+  background: #16120c;
+  border-color: #4a3820;
+  color: #a09070;
+}
+
+/* ---- Translation Stats ---- */
 .zh-stats {
-  color: #8b8 !important;
-  font-size: 11px !important;
+  color: #7a9a5a !important;
+  font-size: 10px !important;
   font-weight: 400 !important;
   text-align: right;
-  line-height: 1.4;
+  line-height: 1.5;
+}
+
+.zh-item {
+  display: inline;
+  white-space: nowrap;
+}
+
+.zh-item + .zh-item::before {
+  content: " · ";
+  color: #3a4a2a;
+}
+
+.type-badge-sm {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 600;
+  color: #8b7030;
+  background: #1a1410;
+  border: 1px solid #4a3820;
+  border-radius: 1px;
+  padding: 0 3px;
+  margin-right: 2px;
+  vertical-align: middle;
+  line-height: 1.6;
+  text-transform: none;
 }
 </style>
