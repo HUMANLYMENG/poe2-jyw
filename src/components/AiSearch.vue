@@ -337,7 +337,7 @@ textarea {
   border-radius: 2px;
   color: #c0b090;
   padding: 9px;
-  font-size: 12px;
+  font-size: 13px;
   resize: vertical;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
   min-height: 58px;
@@ -456,7 +456,7 @@ textarea::placeholder {
   display: flex;
   justify-content: space-between;
   padding: 2px 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -475,19 +475,19 @@ textarea::placeholder {
 .summary-row .value.unmatched {
   color: #c86464;
   font-weight: 400;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .summary-row .value.stat-summary {
   color: #7a9a5a;
   font-weight: 500;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .summary-row .value.tier-badge-row {
   color: #c8aa6e;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .summary-row .value.type-badge {
@@ -496,7 +496,7 @@ textarea::placeholder {
   padding: 1px 7px;
   border: 1px solid #4a3820;
   border-radius: 1px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .summary-row .value.eq-badge {
@@ -505,7 +505,7 @@ textarea::placeholder {
   padding: 1px 5px;
   border: 1px solid #3a4a2a;
   border-radius: 1px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .summary-row .value.tag-list {
@@ -660,7 +660,7 @@ textarea::placeholder {
 /* ---- Translation Stats ---- */
 .zh-stats {
   color: #7a9a5a !important;
-  font-size: 10px !important;
+  font-size: 12px !important;
   font-weight: 400 !important;
   text-align: right;
   line-height: 1.5;
@@ -679,7 +679,7 @@ textarea::placeholder {
 
 .type-badge-sm {
   display: inline-block;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   color: #cfb070;
   background: #1a1410;
