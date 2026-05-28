@@ -39,8 +39,9 @@ with open('$BUILD_DIR/manifest.json', 'w') as f:
 print('Done:', m.get('permissions'))
 "
 
-# Create XPI (Firefox extension format — renamed .zip)
-cd build
-rm -f poe2-trade-enhancer-ff.xpi
-zip -r poe2-trade-enhancer-ff.xpi firefox-mv2-prod/
+# Create XPI — manifest.json must be at archive root, not inside a subfolder
+cd "$BUILD_DIR"
+rm -f ../poe2-trade-enhancer-ff.xpi
+zip -r ../poe2-trade-enhancer-ff.xpi .
+cd ../..
 echo "✅ poe2-trade-enhancer-ff.xpi"
