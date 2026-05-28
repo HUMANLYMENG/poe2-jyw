@@ -23,10 +23,13 @@ for size in 16 32 48 64 128; do
 done
 
 echo "=== Patching manifest ==="
-python3 -c "
-import json
-with open('$BUILD_DIR/manifest.json') as f:
+python3 << 'PYEOF'
+import json, os
+build_dir = os.environ.get("BUILD_DIR", "build/firefox-mv2-prod")
+manifest_path = os.path.join(build_dir, "manifest.json")
+with open(manifest_path) as f:
     m = json.load(f)
+
 m['permissions'] = [
     'storage',
     'unlimitedStorage',
@@ -35,16 +38,25 @@ m['permissions'] = [
     'https://api.openai.com/*',
     'http://127.0.0.1/*',
 ]
-# Firefox MV2: add popup since sidePanel API doesn't exist
 if 'browser_action' in m:
     m['browser_action']['default_popup'] = 'popup.html'
     m['browser_action']['default_title'] = 'PoE2 Trade Enhancer'
-with open('$BUILD_DIR/manifest.json', 'w') as f:
+
+# AMO required
+m['browser_specific_settings'] = {
+    'gecko': {
+        'id': 'poe2-trade-enhancer@jyw',
+        'strict_min_version': '115.0'
+    }
+}
+m['data_collection_permissions'] = []
+
+with open(manifest_path, 'w') as f:
     json.dump(m, f, ensure_ascii=False)
 print('Manifest updated')
-"
+PYEOF
 
-# Create XPI — manifest.json must be at archive root, not inside a subfolder
+# Create XPI
 cd "$BUILD_DIR"
 rm -f ../poe2-trade-enhancer-ff.xpi
 zip -r ../poe2-trade-enhancer-ff.xpi .

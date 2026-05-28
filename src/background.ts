@@ -509,9 +509,18 @@ export async function fetchStats(): Promise<StatEntry[]> {
     const stored = await storageGet("statsCache")
     if (stored.statsCache?.entries && stored.statsCache?.timestamp) {
       if (Date.now() - stored.statsCache.timestamp < STATS_CACHE_TTL) {
-        statsCache = stored.statsCache.entries
-        statsCacheTime = stored.statsCache.timestamp
-        return statsCache
+        const cached = stored.statsCache.entries
+        // Validate cache integrity — corrupted entries cause "Invalid query" API errors
+        const isValid = Array.isArray(cached) && cached.length > 100 &&
+          cached.every((e: any) => typeof e.id === "string" && e.id.length > 3)
+        if (isValid) {
+          statsCache = cached
+          statsCacheTime = stored.statsCache.timestamp
+          return statsCache
+        }
+        // Cache is corrupt — clear it so we re-fetch from network
+        console.warn("[PoE2] Stats cache corrupted, clearing and re-fetching")
+        storageSet({ statsCache: null }).catch(() => {})
       }
     }
   } catch (_) { /* storage unavailable, proceed to network */ }
