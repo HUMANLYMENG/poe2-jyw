@@ -562,7 +562,22 @@ export async function executeSearch(
   })
   if (!resp.ok) {
     const errText = await resp.text()
-    throw new Error(`Search API returned ${resp.status}: ${errText}`)
+    // Parse API error and provide user-friendly Chinese messages
+    let friendlyMsg: string
+    try {
+      const parsed = JSON.parse(errText)
+      const apiError: string = parsed.error || ""
+      if (apiError.includes("Invalid query")) {
+        friendlyMsg = "查询无效 — 可能是缓存数据损坏。请尝试：扩展管理 → 清除存储 → 重新加载页面。"
+      } else if (apiError.includes("too complex") || apiError.includes("reduce")) {
+        friendlyMsg = "查询太复杂，匹配结果太多。请加上更多限制条件（比如价格范围、具体的装备类型）来缩小结果。"
+      } else {
+        friendlyMsg = `API 错误 (${resp.status}): ${apiError}`
+      }
+    } catch {
+      friendlyMsg = `搜索失败 (${resp.status})，请重试或刷新页面。`
+    }
+    throw new Error(friendlyMsg)
   }
   return resp.json()
 }
