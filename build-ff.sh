@@ -46,10 +46,11 @@ if 'browser_action' in m:
 m['browser_specific_settings'] = {
     'gecko': {
         'id': 'poe2-trade-enhancer@jyw',
-        'strict_min_version': '115.0'
+        'strict_min_version': '115.0',
+        'data_collection_permissions': {'required': ['none']}
     }
 }
-m['data_collection_permissions'] = []
+m['license'] = 'MIT'
 
 with open(manifest_path, 'w') as f:
     json.dump(m, f, ensure_ascii=False)
