@@ -195,6 +195,7 @@ export type BgMessage =
   | { type: "SAVE_SETTINGS"; payload: AppSettings }
   | { type: "GET_HISTORY" }
   | { type: "CLEAR_HISTORY" }
+  | { type: "RESOLVE_MOD_TIERS"; payload: { mods: { text: string; category?: string }[] } }
 
 export type BgResponse<T = unknown> = {
   status: "success" | "error"

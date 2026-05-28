@@ -4,7 +4,7 @@
     <div class="search-input-area">
       <textarea
         v-model="searchText"
-        placeholder="描述装备，如：T1电点伤戒指 生命80以上 抗性"
+        placeholder="描述装备，如：弓 伤害大于200 暴击率大于9"
         rows="3"
         :disabled="loading"
         @keydown.enter.exact.prevent="search"
@@ -163,10 +163,10 @@ const executingSearch = ref(false)
 const history = ref<SearchHistoryEntry[]>([])
 
 const examples = [
-  "T1电点伤的戒指 生命80+ 抗性",
+  "T1电点伤的戒指 生命80+ 词缀抗性加起来大于50",
+  "弓 伤害大于200 暴击率大于9 投射物技能等级 至少3d",
+  "猎首腰带",
   "移速30%以上 鞋子",
-  "Ming's Heart 混沌抗性",
-  "高ES胸甲 智慧50+",
 ]
 
 // Send to background for AI parsing

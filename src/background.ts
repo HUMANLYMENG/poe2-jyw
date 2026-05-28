@@ -17,14 +17,32 @@ import { DEFAULT_SETTINGS } from "~types"
 // ---- Translation Dictionary ---- 
 
 let enZhDict: Record<string, string> | null = null
+let normalizedDictIndex: Map<string, string> | null = null // normalized-en → zh, O(1) lookup
 
 // ---- Affix Validation (poe2db.tw data) ----
 
 let affixDb: { categories: Array<{ category: string; slug: string; affixes: Array<{ details?: string; stat_text?: string; type?: string }> }> } | null = null
 let categoryAffixFingerprints: Map<string, Set<string>> = new Map()
 
+const AFFIX_CACHE_VERSION = 2 // bump to invalidate stale fingerprints when DB changes
+
 async function loadAffixDb(): Promise<void> {
   if (affixDb) return
+
+  // Check persistent fingerprint cache (avoids re-parsing 6MB JSON + building 14k fingerprints)
+  try {
+    const stored = await storageGet("affixFingerprints")
+    if (stored.affixFingerprints?.version === AFFIX_CACHE_VERSION && stored.affixFingerprints?.data) {
+      const data: Record<string, string[]> = stored.affixFingerprints.data
+      for (const [slug, fps] of Object.entries(data)) {
+        categoryAffixFingerprints.set(slug, new Set(fps))
+      }
+      affixDb = {} as any // truthy guard: skip re-parsing
+      console.log(`[PoE2] Affix fingerprints restored from cache: ${categoryAffixFingerprints.size} categories`)
+      return
+    }
+  } catch (_) { /* storage unavailable, proceed */ }
+
   try {
     const url = chrome.runtime.getURL("poe2-base-affixes.json")
     const resp = await fetch(url)
@@ -84,9 +102,118 @@ async function loadAffixDb(): Promise<void> {
     }
 
     console.log(`[PoE2] Affix DB loaded: ${affixDb!.categories.length} categories`)
+    buildModTierLookup()
+
+    // Persist fingerprints to storage (Map → Record for serialization)
+    const serialized: Record<string, string[]> = {}
+    for (const [slug, fps] of categoryAffixFingerprints) {
+      serialized[slug] = [...fps]
+    }
+    storageSet({ affixFingerprints: { version: AFFIX_CACHE_VERSION, data: serialized } }).catch(() => {})
   } catch (e) {
     console.warn("[PoE2] Affix DB not available:", e)
   }
+}
+
+// ---- Mod Tier Resolution ---- 
+// Maps normalized mod text → [{level, detail: original detail string}]
+// Built from affixDb. Used by RESOLVE_MOD_TIERS to determine tier numbers.
+let modTierLookup: Map<string, { level: number; detail: string }[]> | null = null
+
+function buildModTierLookup(): void {
+  if (!affixDb) return
+  modTierLookup = new Map()
+  
+  for (const cat of affixDb.categories) {
+    for (const affix of (cat.affixes || [])) {
+      const detail = affix.details
+      if (!detail) continue
+      
+      // Parse level number — same cleaning as fingerprint builder
+      const levelMatch = detail.match(/^(\d+)\s+/)
+      if (!levelMatch) continue
+      const level = parseInt(levelMatch[1], 10)
+      
+      // Clean text: strip leading level, trailing tags+weight, trailing author
+      let cleaned = detail
+        .replace(/^\d+\s+/, "")
+        .replace(/\s+[A-Z][a-zA-Z,]*\s+\d+\s*$/g, "")
+        .replace(/\s+[a-z]+\s*$/g, "")
+        .trim()
+      if (!cleaned) continue
+      
+      // Normalize: ranges → #, numbers → #, operators
+      const key = cleaned
+        .replace(/\([\d.—]+\)/g, "#")
+        .replace(/[\d.]+/g, "#")
+        .replace(/[+\-%]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+      
+      if (!key || key.split(" ").length < 2) continue
+      
+      const entries = modTierLookup.get(key) || []
+      // Deduplicate: only add if not already present at this level
+      if (!entries.some(e => e.level === level)) {
+        entries.push({ level, detail: cleaned })
+      }
+      modTierLookup.set(key, entries)
+    }
+  }
+  
+  // Sort each mod's tiers by level descending (higher level = better tier)
+  for (const entries of modTierLookup.values()) {
+    entries.sort((a, b) => b.level - a.level)
+  }
+  
+  console.log(`[PoE2] Mod tier lookup built: ${modTierLookup.size} unique mod patterns`)
+}
+
+interface TierResult {
+  tier: number   // 0 = best (highest level requirement)
+  label: string  // "T0", "T1", etc.
+}
+
+function resolveModTier(modText: string, _category?: string): TierResult | null {
+  if (!modTierLookup) return null
+  
+  // Normalize the mod text the same way
+  const key = modText
+    .replace(/\([\d.—]+\)/g, "#")
+    .replace(/[\d.]+/g, "#")
+    .replace(/[+\-%]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+  
+  const entries = modTierLookup.get(key)
+  if (!entries || entries.length === 0) return null
+  
+  // Extract actual numbers from the mod text for range matching
+  const actualNums = modText.match(/[\d.]+/g)?.map(Number) || []
+  
+  // Find which tier this roll falls into by matching the range
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    const rangeNums = e.detail.match(/[\d.]+/g)?.map(Number) || []
+    
+    // Check if the actual values fall within this tier's range
+    if (actualNums.length && rangeNums.length) {
+      // For simple stats with min-max range: check if actual is within [min, max]
+      if (rangeNums.length >= 2 && actualNums.length >= 1) {
+        const tierMin = Math.min(rangeNums[0], rangeNums[1])
+        const tierMax = Math.max(rangeNums[0], rangeNums[1])
+        const actualVal = actualNums[0]
+        if (actualVal >= tierMin && actualVal <= tierMax) {
+          return { tier: i, label: `T${i}` }
+        }
+      }
+    }
+  }
+  
+  // Fallback: use first (best) tier if no range matched
+  return { tier: 0, label: "T0" }
 }
 
 // Map AI type names to poe2db category slugs
@@ -143,17 +270,52 @@ function validateStatForCategory(statText: string, categoryType: string): { vali
 
 async function loadDictionary(): Promise<Record<string, string>> {
   if (enZhDict) return enZhDict
+
+  // Check persistent cache first (survives service worker restart)
+  try {
+    const stored = await storageGet("enZhDict")
+    if (stored.enZhDict && Object.keys(stored.enZhDict).length > 0) {
+      enZhDict = stored.enZhDict
+      // Restore pre-built index from storage
+      if (stored.dictIndex && Array.isArray(stored.dictIndex)) {
+        normalizedDictIndex = new Map(stored.dictIndex)
+        console.log(`[PoE2] Dict index restored from cache: ${normalizedDictIndex.size} entries`)
+      } else {
+        buildDictIndex()
+      }
+      console.log(`[PoE2] Dictionary loaded from cache: ${Object.keys(enZhDict!).length} entries`)
+      return enZhDict
+    }
+  } catch (_) { /* storage unavailable, proceed to network */ }
+
   try {
     const url = chrome.runtime.getURL("poe2_en_zh.json")
     const resp = await fetch(url)
     if (!resp.ok) throw new Error(`Dict load failed: ${resp.status}`)
     enZhDict = await resp.json()
+    buildDictIndex()
     console.log(`[PoE2] Dictionary loaded: ${Object.keys(enZhDict!).length} entries`)
+
+    // Persist dict + pre-built index to storage
+    storageSet({
+      enZhDict,
+      dictIndex: normalizedDictIndex ? [...normalizedDictIndex.entries()] : []
+    }).catch(() => {})
+
     return enZhDict!
   } catch (e) {
     console.warn("[PoE2] Dictionary not available, translations disabled:", e)
     enZhDict = {}
     return {}
+  }
+}
+
+// Build O(1) lookup index: normalized-en → zh
+function buildDictIndex(): void {
+  if (!enZhDict) { normalizedDictIndex = null; return }
+  normalizedDictIndex = new Map()
+  for (const [en, zh] of Object.entries(enZhDict)) {
+    normalizedDictIndex.set(normalizeStatText(en), zh)
   }
 }
 
@@ -175,11 +337,10 @@ function translateEnToZh(englishText: string): string | null {
   const needle = normalizeStatText(englishText)
   if (!needle) return null
   
-  // Exact normalized match only (numbers → #)
-  for (const [en, zh] of Object.entries(enZhDict)) {
-    if (normalizeStatText(en) === needle) {
-      return substituteNumbers(zh, realNumbers)
-    }
+  // O(1) lookup via pre-built index (was O(n) linear scan of 9,529 entries)
+  if (normalizedDictIndex) {
+    const zh = normalizedDictIndex.get(needle)
+    if (zh) return substituteNumbers(zh, realNumbers)
   }
   
   return null
@@ -332,9 +493,22 @@ let statsCacheTime = 0
 const STATS_CACHE_TTL = 3600_000 // 1 hour
 
 export async function fetchStats(): Promise<StatEntry[]> {
+  // Check memory cache first
   if (statsCache && Date.now() - statsCacheTime < STATS_CACHE_TTL) {
     return statsCache
   }
+
+  // Check persistent cache (survives service worker restart)
+  try {
+    const stored = await storageGet("statsCache")
+    if (stored.statsCache?.entries && stored.statsCache?.timestamp) {
+      if (Date.now() - stored.statsCache.timestamp < STATS_CACHE_TTL) {
+        statsCache = stored.statsCache.entries
+        statsCacheTime = stored.statsCache.timestamp
+        return statsCache
+      }
+    }
+  } catch (_) { /* storage unavailable, proceed to network */ }
 
   const resp = await fetch(`${POE_API_BASE}/data/stats`)
   if (!resp.ok) throw new Error(`Stats API returned ${resp.status}`)
@@ -355,6 +529,10 @@ export async function fetchStats(): Promise<StatEntry[]> {
 
   statsCache = entries
   statsCacheTime = Date.now()
+
+  // Persist to storage so service worker restarts don't lose it
+  storageSet({ statsCache: { entries, timestamp: statsCacheTime } }).catch(() => {})
+
   return entries
 }
 
@@ -551,6 +729,80 @@ You MUST output this exact JSON structure:
    E.g. "戒指能量护盾50" → stats:[{text:"+# to maximum Energy Shield",min:50}].
    E.g. "高护甲闪避衣服" → equipment:[{id:"ar",min:null,max:null},{id:"ev",min:null,max:null}].
 
+   ⚠️ **WEAPON DAMAGE RULE — CRITICAL** ⚠️
+   On weapons (Bow, Crossbow, Sword, Axe, Mace, Dagger, Claw, Spear, Flail,
+   Quarterstaff, Wand, Sceptre, Staff), **EVERY** mention of damage goes to equipment.
+   **NEVER** put raw damage (伤害/秒伤/物理伤害/元素伤害) in stats.
+
+   Equipment filter IDs for weapon damage:
+   - dps (秒伤/DPS) — damage per second
+   - pdps (物理秒伤) — physical DPS
+   - edps (元素秒伤) — elemental DPS
+   - damage (单次伤害/伤害) — per-hit damage
+
+   Mapping:
+   - "秒伤" / "DPS" → equipment:[{id:"dps",...}]
+   - "物理秒伤" / "pdps" → equipment:[{id:"pdps",...}]
+   - "元素秒伤" / "edps" → equipment:[{id:"edps",...}]
+   - "伤害" / "高伤害" / "大伤" → equipment:[{id:"damage",...}]
+   - "物理伤害" → equipment:[{id:"damage",...}] (per-hit, not dps)
+
+   Only when user EXPLICITLY says "词缀/词条/mod/affix" on a weapon → use stat
+   with "#% increased Physical Damage" or "Adds # to # Physical Damage".
+
+   Examples:
+   - "弓 伤害大于200" → equipment:[{id:"damage",min:200}], stats:[]
+   - "高秒伤弩" → equipment:[{id:"dps",min:null,max:null}], stats:[]
+   - "500+dps的弓箭" → equipment:[{id:"dps",min:500}], stats:[]
+   - "单手剑 物理秒伤300" → equipment:[{id:"pdps",min:300}], stats:[]
+   - "弓 伤害词缀" → ONLY then: stats with "#% increased Physical Damage"
+
+   ⚠️ **WEAPON APS RULE** ⚠️
+   On weapons (Bow, Crossbow, Sword, Axe, Mace, Dagger, Claw, Spear, Flail,
+   Quarterstaff, Wand, Sceptre, Staff), **attacks per second (攻速/武器速度/APS)**
+   goes to equipment. NEVER put in stats.
+   - equipment id: "aps"
+   - "攻速" / "武器速度" / "高攻速" → equipment:[{id:"aps",...}]
+   Only when user EXPLICITLY says "攻速词缀/mod" → stat with "#% increased Attack Speed"
+
+   Example: "高攻速弓" → equipment:[{id:"aps",min:null,max:null}], stats:[]
+   Example: "攻速1.5以上的单手剑" → equipment:[{id:"aps",min:1.5}]
+
+   ⚠️ **WEAPON CRIT RULE** ⚠️
+   On weapons, **critical chance (暴击率/暴击/crit)** goes to equipment. NEVER in stats.
+   - equipment id: "crit"
+   - "暴击率" / "暴击" / "高暴击" / "crit" → equipment:[{id:"crit",...}]
+   Only when user EXPLICITLY says "暴击词缀/mod" → stat with "#% to Critical Hit Chance"
+
+   Example: "高暴击弓" → equipment:[{id:"crit",min:null,max:null}], stats:[]
+   Example: "暴击8以上的匕首" → equipment:[{id:"crit",min:8}]
+
+   ⚠️ **CROSSBOW RELOAD RULE** ⚠️
+   On crossbows (弩/Crossbow), **reload time (装填时间/装填)** goes to equipment. NEVER in stats.
+   - equipment id: "reload_time" (in seconds, lower is faster — use max)
+   - "装填" / "装填时间" / "装填快" / "reload" → equipment:[{id:"reload_time",max:...}]
+
+   Example: "装填0.5以下的弩" → equipment:[{id:"reload_time",max:0.5}], stats:[]
+   Example: "装填快的弩" → equipment:[{id:"reload_time",min:null,max:null}], stats:[]
+
+   ⚠️ **SHIELD BLOCK RULE** ⚠️
+   On shields (盾牌/Shield), **block chance (格挡率/格挡)** goes to equipment. NEVER in stats.
+   - equipment id: "block"
+   - "格挡" / "格挡率" / "高格挡" → equipment:[{id:"block",...}]
+   Only when user EXPLICITLY says "格挡词缀/mod" → stat with "#% increased Block chance"
+
+   Example: "高格挡盾牌" → equipment:[{id:"block",min:null,max:null}], stats:[]
+   Example: "格挡30以上的盾" → equipment:[{id:"block",min:30}]
+
+   ⚠️ **SPIRIT RULE** ⚠️
+   On ANY item, **spirit (精魂)** goes to equipment. NEVER in stats.
+   - equipment id: "spirit"
+   - "精魂" / "高精魂" / "spirit" → equipment:[{id:"spirit",...}]
+   Only when user EXPLICITLY says "精魂词缀/mod" → stat with "+# to Spirit"
+
+   Example: "高精魂胸甲" → equipment:[{id:"spirit",min:null,max:null}], stats:[]
+   Example: "精魂50以上的权杖" → equipment:[{id:"spirit",min:50}]
+
 ### Type Filters
 5. "rarity": "rare" if user says 稀有/黄装, "unique" for 传奇/暗金, "magic" for 魔法/蓝装, "normal" for 白装/普通, "nonunique" for 非传奇. null = any.
 6. "ilvl": item level (物品等级). E.g. "物品等级80+" → {min:80,max:null}, "ilvl 70-85" → {min:70,max:85}. null if not specified.
@@ -580,7 +832,15 @@ You MUST output this exact JSON structure:
 17. "status": "online" by default.
 18. "sort": "price-asc" by default.
 19. "explanation" in Chinese.
-20. For "鞋子" or "boots": include a movement speed stat.
+20. ⚠️ BOOTS MOVEMENT SPEED RULE:
+   When user searches boots (鞋子/Boots), always include movement speed as a stat:
+   - EXACT stat text: "#% increased Movement Speed"
+   - statType: match user's wording — "任意来源" → null, "词缀" → "explicit", otherwise null
+   - min/max: apply user's number if given (e.g. "30%以上" → min:30)
+   
+   Example: "任意来源移动速度30%以上的鞋子" → stats:[{text:"#% increased Movement Speed",min:30,statType:null}]
+   Example: "20移速鞋子" → stats:[{text:"#% increased Movement Speed",min:20,statType:null}]
+   This stat is MANDATORY for any boot query. Never skip it.
 
 ## ⚠️ CRITICAL: ALWAYS include price when mentioned
 If the user says ANY price limit — "最高X", "不超过X", "X以下", "X以上", "最少X", "X-Yc/d/e", "budget X" — you MUST output the "price" field. Never skip it.
@@ -620,24 +880,34 @@ interface AiIntent {
 }
 
 function fuzzyMatchStat(searchText: string, stats: StatEntry[]): StatEntry | null {
-  const needle = searchText.toLowerCase().replace(/#/g, "").replace(/[+-]/g, "").trim()
+  const needle = searchText.toLowerCase().replace(/[#+\-%]/g, "").replace(/\s+/g, " ").trim()
   
   let best: StatEntry | null = null
   let bestScore = 0
 
   for (const stat of stats) {
-    const haystack = (stat.text || "").toLowerCase()
+    const haystack = (stat.text || "").toLowerCase().replace(/[#+\-%]/g, "").replace(/\s+/g, " ").trim()
     
-    // Exact match after stripping placeholders
-    if (haystack === needle) return stat
+    // Exact match — skip pseudo entries (pseudo.xxx IDs can't be expanded to type variants)
+    if (haystack === needle && !String(stat.id).startsWith("pseudo.")) return stat
     
-    // Substring match
-    if (haystack.includes(needle) || needle.includes(haystack)) {
-      const score = Math.min(haystack.length, needle.length) / Math.max(haystack.length, needle.length)
-      if (score > bestScore) {
-        bestScore = score
-        best = stat
+    // Substring match — also skip pseudo
+    if (!String(stat.id).startsWith("pseudo.")) {
+      if (haystack.includes(needle) || needle.includes(haystack)) {
+        const score = Math.min(haystack.length, needle.length) / Math.max(haystack.length, needle.length)
+        if (score > bestScore) {
+          bestScore = score
+          best = stat
+        }
       }
+    }
+  }
+
+  // If only pseudo matched, fall back to it
+  if (!best) {
+    for (const stat of stats) {
+      const haystack = (stat.text || "").toLowerCase().replace(/[#+\-%]/g, "").replace(/\s+/g, " ").trim()
+      if (haystack === needle) return stat
     }
   }
 
@@ -1311,6 +1581,24 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
     case "CLEAR_HISTORY": {
       await storageRemove("searchHistory")
       return { status: "success" }
+    }
+
+    case "RESOLVE_MOD_TIERS": {
+      const { mods } = msg.payload as { mods: { text: string; category?: string }[] }
+      // Ensure tier lookup is built — reload raw DB if only fingerprints were cached
+      if (!modTierLookup) {
+        // Force reload raw JSON if cache only restored fingerprints (affixDb = {})
+        if (!affixDb || !(affixDb as any).categories) {
+          affixDb = null  // reset guard so loadAffixDb re-fetches
+        }
+        await loadAffixDb()
+        if (!modTierLookup) buildModTierLookup()
+      }
+      const results: Record<number, TierResult | null> = {}
+      for (let i = 0; i < mods.length; i++) {
+        results[i] = resolveModTier(mods[i].text, mods[i].category)
+      }
+      return { status: "success", result: results }
     }
 
     default:

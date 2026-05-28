@@ -251,24 +251,22 @@ function injectTranslations(translations: Record<string, string>): void {
     if (translatedTexts.has(en)) continue
     translatedTexts.add(en)
 
-    // Short labels (≤40 chars): replace textContent of matching elements directly
-    if (en.length <= 40) {
-      let found = false
-      document.querySelectorAll("span, div, button, label, option, th, td, a, li, p, h1, h2, h3, h4, h5, h6").forEach((el) => {
-        if (found) return // only replace first match
-        const htmlEl = el as HTMLElement
-        if (htmlEl.children.length > 0) return
-        const text = (htmlEl.textContent || "").trim()
-        if (text === en) {
-          htmlEl.textContent = zh
-          htmlEl.title = en
-          found = true
-        }
-      })
-      if (found) continue
-    }
+    // Try direct element replacement first (any length)
+    let found = false
+    document.querySelectorAll("span, div, button, label, option, th, td, a, li, p, h1, h2, h3, h4, h5, h6").forEach((el) => {
+      if (found) return // only replace first match
+      const htmlEl = el as HTMLElement
+      if (htmlEl.children.length > 0) return
+      const text = (htmlEl.textContent || "").trim()
+      if (text === en) {
+        htmlEl.textContent = zh
+        htmlEl.title = en
+        found = true
+      }
+    })
+    if (found) continue
 
-    // Longer text: find text nodes and append CN span
+    // Fallback: replace text node directly (no blue annotation span)
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
@@ -282,11 +280,8 @@ function injectTranslations(translations: Record<string, string>): void {
       const parent = node.parentElement
       if (!parent) continue
       
-      const span = document.createElement("span")
-      span.className = "poe2te-cn-affix"
-      span.textContent = " " + (zh.length > 50 ? zh.slice(0, 48) + "…" : zh)
-      span.title = en
-      parent.appendChild(span)
+      node.textContent = zh
+      parent.setAttribute("title", en)
       break // only first match
     }
   }

@@ -32,7 +32,7 @@
 
       <!-- Help Popover -->
       <div v-if="showHelp" class="help-popover">
-        <div class="help-title">搜索关键词速查</div>
+        <div class="help-title">搜索词缀类型</div>
         <table class="help-table">
           <thead>
             <tr>
@@ -67,11 +67,30 @@
             </tr>
           </tbody>
         </table>
+        <div class="help-subtitle">装备属性（自动走装备过滤）</div>
+        <table class="help-table">
+          <thead>
+            <tr>
+              <th>属性</th>
+              <th>适用</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="ht-type">护甲/闪避/护盾</td><td>胸甲 头盔 手套 鞋子</td></tr>
+            <tr><td class="ht-type">伤害/秒伤</td><td>所有武器</td></tr>
+            <tr><td class="ht-type">攻速/武器速度</td><td>所有武器</td></tr>
+            <tr><td class="ht-type">暴击率</td><td>所有武器</td></tr>
+            <tr><td class="ht-type">装填时间</td><td>弩</td></tr>
+            <tr><td class="ht-type">格挡率</td><td>盾牌</td></tr>
+            <tr><td class="ht-type">精魂</td><td>所有装备</td></tr>
+          </tbody>
+        </table>
         <div class="help-examples">
           <div class="help-subtitle">例子</div>
-          <div class="help-ex">"固定住攻速的弓" → 只搜固定词缀</div>
-          <div class="help-ex">"模糊搜索冰抗大于50" → 搜所有类型</div>
-          <div class="help-ex">"Ming's Heart 混沌抗性词缀" → 自动识别基底</div>
+          <div class="help-ex">"弓 伤害大于200 暴击率大于9" → 自动走装备过滤</div>
+          <div class="help-ex">"任意来源移动速度30% 鞋子" → 移速必带</div>
+          <div class="help-ex">"格挡30以上 盾牌" → 装备过滤，不是词缀</div>
+          <div class="help-ex">说"词缀"才搜词缀 — "弓 暴击词缀" → stat</div>
         </div>
       </div>
 
@@ -241,7 +260,7 @@ const currentLeague = computed(() => {
   border-top: none;
   padding: 10px 12px;
   font-size: 10px;
-  max-height: 260px;
+  max-height: 420px;
   overflow-y: auto;
   flex-shrink: 0;
 }

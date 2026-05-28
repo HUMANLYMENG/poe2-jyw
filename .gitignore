@@ -5,3 +5,4 @@ build/
 .parcel-cache/
 .env
 *.log
+.DS_Store

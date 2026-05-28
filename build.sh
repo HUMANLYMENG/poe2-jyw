@@ -1,13 +1,13 @@
 #!/bin/bash
-# PoE2 Trade Enhancer — Build Script
+# PoE2 Trade Enhancer — Build Chrome MV3
 # Usage: ./build.sh
 set -e
 cd "$(dirname "$0")"
 BUILD_DIR="build/chrome-mv3-prod"
 
-echo "🔨 PoE2 Trade Enhancer — Build"
+echo "🔨 PoE2 Trade Enhancer — Chrome Build"
 
-# Plasmo v0.90.5 workaround: pre-create gen-assets (don't delete .plasmo)
+# Plasmo v0.90.5 workaround: pre-create gen-assets
 if [ ! -d .plasmo/gen-assets ]; then
   mkdir -p .plasmo/gen-assets
   python3 -c "
@@ -24,9 +24,9 @@ for s in [16,32,48,64,128]:
 "
 fi
 
-npx plasmo build
+npx plasmo build --target=chrome-mv3
 
-# Patch manifest for Firefox + permissions
+# Patch manifest: ensure storage permission + host_permissions
 python3 -c "
 import json
 with open('$BUILD_DIR/manifest.json') as f:
@@ -40,17 +40,16 @@ m['host_permissions'] = [
     'http://127.0.0.1:*/*',
     'http://localhost:*/*'
 ]
-m['browser_specific_settings'] = {'gecko': {'id': 'poe2-trade-enhancer@jojo.local', 'strict_min_version': '115.0'}}
-m['web_accessible_resources'] = [{'resources': ['poe2_en_zh.json', 'poe2-base-affixes.json'], 'matches': ['<all_urls>']}]
-if m.get('background',{}).get('service_worker'):
-    m['background']['scripts'] = [m['background'].pop('service_worker')]
 with open('$BUILD_DIR/manifest.json', 'w') as f:
     json.dump(m, f, indent=2, separators=(',', ': '))
 " 2>/dev/null
 
-# Copy dictionary for translation feature
-cp public/poe2_en_zh.json "$BUILD_DIR/" 2>/dev/null || echo "⚠️  Dict not found, translation disabled"
-cp public/poe2-base-affixes.json "$BUILD_DIR/" 2>/dev/null || echo "⚠️  Affix DB not found, validation disabled"
+# Copy data files
+cp public/poe2_en_zh.json "$BUILD_DIR/" 2>/dev/null || echo "⚠️  Dict not found"
+cp public/poe2-base-affixes.json "$BUILD_DIR/" 2>/dev/null || echo "⚠️  Affix DB not found"
 
-echo "✅ $BUILD_DIR/"
-echo "Firefox: about:debugging → 临时载入附加组件 → $BUILD_DIR/manifest.json"
+# Rebuild zip
+cd build
+rm -f poe2-trade-enhancer.zip
+zip -r poe2-trade-enhancer.zip chrome-mv3-prod/
+echo "✅ poe2-trade-enhancer.zip"

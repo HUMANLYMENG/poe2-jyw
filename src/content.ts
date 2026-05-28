@@ -6,6 +6,7 @@
 import { createApp } from "vue"
 import SidePanel from "./components/SidePanel.vue"
 import { initPageTranslator } from "./content/affix-injector"
+import { initTierLabels } from "./content/tier-injector"
 
 // ---- Plasmo config (must be at top level) ----
 export const config = {
@@ -70,18 +71,20 @@ function injectStyles() {
 
     .poe2te-tier-badge {
       display: inline-block;
-      margin-left: 4px;
-      padding: 0 5px;
-      border-radius: 3px;
-      font-size: 10px;
+      margin-right: 4px;
+      padding: 0 6px;
+      border-radius: 2px;
+      font-size: 11px;
       font-weight: 700;
       vertical-align: middle;
+      line-height: 1.6;
     }
 
-    .poe2te-tier-T1 { background: #ffd700; color: #333; }
-    .poe2te-tier-T2 { background: #c0c0c0; color: #333; }
-    .poe2te-tier-T3 { background: #cd7f32; color: #fff; }
-    .poe2te-tier-default { background: #444; color: #888; }
+    .poe2te-tier-T0 { background: linear-gradient(135deg, #ff6b35, #ffd700); color: #1a0a00; font-weight: 800; text-shadow: 0 0 4px rgba(255,215,0,0.5); }
+    .poe2te-tier-T1 { background: #ffd700; color: #1a1a00; font-weight: 700; }
+    .poe2te-tier-T2 { background: #8b7030; color: #fff; font-weight: 700; }
+    .poe2te-tier-T3 { background: #6c4825; color: #c8aa6e; font-weight: 600; }
+    .poe2te-tier-default { background: #3a2a10; color: #8a7a5a; font-weight: 500; }
 
     /* Translations for stat filter panel */
     .poe2te-stat-cn {
@@ -131,6 +134,10 @@ async function init() {
   // Start page translation
   initPageTranslator()
   console.log("[PoE2 Trade Enhancer] Page translator started")
+
+  // Start tier label injection
+  initTierLabels()
+  console.log("[PoE2 Trade Enhancer] Tier labels started")
 }
 
 // Start
