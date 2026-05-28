@@ -481,6 +481,12 @@ Use these EXACT English texts when the user describes these stats:
 - "Leech #% of Physical Attack Damage as Life" → 物理攻擊傷害生命偷取
 - "gain # Life per enemy killed" → 擊殺回復生命
 - "#% increased Skill Speed" → 技能速度
+- "gain #% of Damage as Extra Fire Damage" → 獲得額外火焰傷害（任意來源）
+- "gain #% of Damage as Extra Cold Damage" → 獲得額外冰冷傷害（任意來源）
+- "gain #% of Damage as Extra Lightning Damage" → 獲得額外閃電傷害（任意來源）
+- "gain #% of Damage as Extra Chaos Damage" → 獲得額外混沌傷害（任意來源）
+- "attacks gain #% of Damage as Extra Fire Damage" → 攻擊獲得額外火焰傷害
+- "gain #% of Elemental Damage as Extra Fire Damage" → 元素傷害獲得額外火焰傷害
 - "#% increased Mana Regeneration Rate" → 魔力回復速度
 `;
 
@@ -885,6 +891,11 @@ function fuzzyMatchStat(searchText: string, stats: StatEntry[]): StatEntry | nul
   let best: StatEntry | null = null
   let bestScore = 0
 
+  // Detect semantic intent from needle: "gain/extra" vs "add/flat"
+  const rawLower = searchText.toLowerCase()
+  const wantsGainOrExtra = /gain|extra|额外/.test(rawLower)
+  const wantsAdd = /add|附加/.test(rawLower)
+
   for (const stat of stats) {
     const haystack = (stat.text || "").toLowerCase().replace(/[#+\-%]/g, "").replace(/\s+/g, " ").trim()
     
@@ -894,7 +905,20 @@ function fuzzyMatchStat(searchText: string, stats: StatEntry[]): StatEntry | nul
     // Substring match — also skip pseudo
     if (!String(stat.id).startsWith("pseudo.")) {
       if (haystack.includes(needle) || needle.includes(haystack)) {
-        const score = Math.min(haystack.length, needle.length) / Math.max(haystack.length, needle.length)
+        let score = Math.min(haystack.length, needle.length) / Math.max(haystack.length, needle.length)
+
+        // Penalize semantic mismatch: "gain/extra" vs "adds/flat" are different mechanics
+        const statRaw = (stat.text || "").toLowerCase()
+        const isAddsStat = /^adds\b/.test(statRaw)
+        const isGainExtraStat = /^gain\b.*\bextra\b/.test(statRaw)
+
+        if (wantsGainOrExtra && isAddsStat && !isGainExtraStat) {
+          score *= 0.1  // "额外伤害" should never match flat "Adds" stats
+        }
+        if (wantsAdd && !wantsGainOrExtra && isGainExtraStat) {
+          score *= 0.1  // "附加" should never match "Gain...Extra" stats
+        }
+
         if (score > bestScore) {
           bestScore = score
           best = stat
@@ -917,7 +941,19 @@ function fuzzyMatchStat(searchText: string, stats: StatEntry[]): StatEntry | nul
     for (const stat of stats) {
       const haystack = (stat.text || "").toLowerCase()
       const matched = words.filter(w => haystack.includes(w)).length
-      const score = matched / words.length
+      let score = matched / words.length
+
+      // Penalize semantic mismatch also in word-by-word fallback
+      const statRaw = (stat.text || "").toLowerCase()
+      const isAddsStat = /^adds\b/.test(statRaw)
+      const isGainExtraStat = /^gain\b.*\bextra\b/.test(statRaw)
+      if (wantsGainOrExtra && isAddsStat && !isGainExtraStat) {
+        score *= 0.1
+      }
+      if (wantsAdd && !wantsGainOrExtra && isGainExtraStat) {
+        score *= 0.1
+      }
+
       if (score > 0.5 && score > bestScore) {
         bestScore = score
         best = stat
@@ -1265,6 +1301,9 @@ const STATIC_TRANSLATIONS: Record<string, string> = {
   "reduced": "降低",
   "more": "更多",
   "less": "更少",
+  "gain": "獲得",
+  "extra": "額外",
+  "gain as extra": "獲得額外",
   "Critical Strike Chance": "暴击率",
   "Critical Hit Chance": "暴击率",
   "Critical Damage Bonus": "暴击伤害加成",
