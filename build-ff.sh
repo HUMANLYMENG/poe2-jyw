@@ -11,6 +11,7 @@ echo "=== Copying data files ==="
 cp public/poe2_en_zh.json "$BUILD_DIR/"
 cp public/poe2_zh_en.json "$BUILD_DIR/"
 cp public/poe2-base-affixes.json "$BUILD_DIR/"
+cp public/popup.html "$BUILD_DIR/"
 
 echo "=== Replacing icons ==="
 for size in 16 32 48 64 128; do
@@ -21,7 +22,7 @@ for size in 16 32 48 64 128; do
   fi
 done
 
-echo "=== Patching manifest permissions ==="
+echo "=== Patching manifest ==="
 python3 -c "
 import json
 with open('$BUILD_DIR/manifest.json') as f:
@@ -34,9 +35,13 @@ m['permissions'] = [
     'https://api.openai.com/*',
     'http://127.0.0.1/*',
 ]
+# Firefox MV2: add popup since sidePanel API doesn't exist
+if 'browser_action' in m:
+    m['browser_action']['default_popup'] = 'popup.html'
+    m['browser_action']['default_title'] = 'PoE2 Trade Enhancer'
 with open('$BUILD_DIR/manifest.json', 'w') as f:
     json.dump(m, f, ensure_ascii=False)
-print('Done:', m.get('permissions'))
+print('Manifest updated')
 "
 
 # Create XPI — manifest.json must be at archive root, not inside a subfolder
