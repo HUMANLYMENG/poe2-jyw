@@ -39,5 +39,8 @@ with open('$BUILD_DIR/manifest.json', 'w') as f:
 print('Done:', m.get('permissions'))
 "
 
-echo "=== Build complete ==="
-ls -lh "$BUILD_DIR"/*.json
+# Create XPI (Firefox extension format — renamed .zip)
+cd build
+rm -f poe2-trade-enhancer-ff.xpi
+zip -r poe2-trade-enhancer-ff.xpi firefox-mv2-prod/
+echo "✅ poe2-trade-enhancer-ff.xpi"
