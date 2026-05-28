@@ -61,7 +61,7 @@
           <span class="label">中文</span>
           <span class="value zh-stats">
             <span v-for="(zh, en) in parsedQuery.translations" :key="en" class="zh-item">
-              <span class="type-badge-sm">{{ typeLabel(parsedQuery.statTypes?.[en]) }}</span>
+              <span :class="['type-badge-sm', typeClass(parsedQuery.statTypes?.[en])]">{{ typeLabel(parsedQuery.statTypes?.[en]) }}</span>
               {{ zh }}
             </span>
           </span>
@@ -77,6 +77,10 @@
         <div class="summary-row" v-if="parsedQuery.statSummary?.length">
           <span class="label">约束</span>
           <span class="value stat-summary">{{ parsedQuery.statSummary.join(' · ') }}</span>
+        </div>
+        <div class="summary-row" v-if="parsedQuery.tierSummary?.length">
+          <span class="label">阶级</span>
+          <span class="value tier-badge-row">{{ parsedQuery.tierSummary.join(' · ') }}</span>
         </div>
         <div class="summary-row" v-if="parsedQuery.query?.filters?.trade_filters?.filters?.price">
           <span class="label">价格</span>
@@ -158,6 +162,7 @@ const parsedQuery = ref<{
   warnings?: string[]
   excluded?: string[]
   statSummary?: string[]
+  tierSummary?: string[]
 } | null>(null)
 const executingSearch = ref(false)
 const history = ref<SearchHistoryEntry[]>([])
@@ -299,6 +304,11 @@ const TYPE_CN: Record<string, string> = {
 function typeLabel(t: string | undefined): string {
   if (!t) return ""
   return TYPE_CN[t] || t
+}
+
+function typeClass(t: string | undefined): string {
+  if (!t) return ""
+  return `type-clr-${t}`
 }
 
 onMounted(() => {
@@ -471,6 +481,12 @@ textarea::placeholder {
 .summary-row .value.stat-summary {
   color: #7a9a5a;
   font-weight: 500;
+  font-size: 10px;
+}
+
+.summary-row .value.tier-badge-row {
+  color: #c8aa6e;
+  font-weight: 700;
   font-size: 10px;
 }
 
@@ -648,11 +664,12 @@ textarea::placeholder {
   font-weight: 400 !important;
   text-align: right;
   line-height: 1.5;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 .zh-item {
   display: inline;
-  white-space: nowrap;
 }
 
 .zh-item + .zh-item::before {
@@ -663,15 +680,23 @@ textarea::placeholder {
 .type-badge-sm {
   display: inline-block;
   font-size: 8px;
-  font-weight: 600;
-  color: #8b7030;
+  font-weight: 700;
+  color: #cfb070;
   background: #1a1410;
-  border: 1px solid #4a3820;
+  border: 1px solid #6c4825;
   border-radius: 1px;
   padding: 0 3px;
-  margin-right: 2px;
+  margin-right: 4px;
   vertical-align: middle;
-  line-height: 1.6;
+  line-height: 1.4;
   text-transform: none;
 }
+
+/* Type-specific badge colors */
+.type-clr-explicit { color: #c8aa6e; border-color: #8b7030; }    /* 词缀 — 金色 */
+.type-clr-implicit { color: #7ab8d4; border-color: #4a7a8a; }    /* 基底 — 冰蓝 */
+.type-clr-enchant  { color: #b87ad4; border-color: #6a4a8a; }    /* 附魔 — 紫 */
+.type-clr-fractured{ color: #d47a7a; border-color: #8a4a4a; }    /* 固定 — 红 */
+.type-clr-desecrated{ color: #8a9a6a; border-color: #4a6a3a; }   /* 亵渎 — 腐绿 */
+.type-clr-pseudo   { color: #a0a0a0; border-color: #5a5a5a; }    /* 综合 — 银灰 */
 </style>

@@ -109,6 +109,12 @@ export interface StatGroupData {
 
 // ---- AI Search Types ----
 
+export interface TierHint {
+  statText: string
+  tier: number
+  statType?: string | null
+}
+
 export interface AiSearchRequest {
   text: string
   league: string

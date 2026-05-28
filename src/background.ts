@@ -10,6 +10,7 @@ import type {
   BgResponse,
   SearchHistoryEntry,
   StatEntry,
+  TierHint,
   TradeSearchQuery,
 } from "~types"
 import { DEFAULT_SETTINGS } from "~types"
@@ -266,6 +267,123 @@ function validateStatForCategory(statText: string, categoryType: string): { vali
   }
   
   return { valid: false, categorySlug: slug }
+}
+
+// ---- Tier Resolution ----
+
+function normalizeAffixText(text: string): string {
+  // Same pipeline as validateStatForCategory + loadAffixDb fingerprint builder
+  let cleaned = text
+    .replace(/^\d+\s+/, "")                       // strip leading level number
+    .replace(/\s+[A-Z][a-zA-Z,]*\s+\d+\s*$/g, "")   // strip trailing tags + weight
+    .replace(/\s+[a-z]+\s*$/g, "")                   // strip trailing lowercase author
+    .trim()
+  return cleaned
+    .replace(/\([\d.—]+\)/g, "#")
+    .replace(/[\d.]+/g, "#")
+    .replace(/[+\-%]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+}
+
+function extractTierValue(details: string): number | null {
+  // (firstMin + lastMin) / 2 for multi-range, (min+max)/2 for single range
+  const ranges = details.match(/\(([\d.]+)—([\d.]+)\)/g)
+  if (!ranges || ranges.length === 0) return null
+  const parseRange = (r: string) => {
+    const m = r.match(/\(([\d.]+)—([\d.]+)\)/)
+    return m ? { min: parseFloat(m[1]), max: parseFloat(m[2]) } : null
+  }
+  
+  if (ranges.length === 1) {
+    const r = parseRange(ranges[0])
+    return r ? (r.min + r.max) / 2 : null
+  }
+  
+  const first = parseRange(ranges[0])
+  const last = parseRange(ranges[ranges.length - 1])
+  if (!first || !last) return null
+  return (first.min + last.min) / 2
+}
+
+function resolveTierBounds(
+  statText: string,
+  categoryType: string,
+  tier: number,
+  statType: string | null | undefined
+): { min: number } | null {
+  if (!affixDb) return null
+
+  // Ensure full data is loaded (not just fingerprint cache stub)
+  if (!(affixDb as any).categories) {
+    console.log("[PoE2] Tier resolution needs full affix DB, reloading...")
+    affixDb = null
+    // Can't await in sync context — handled in the async handler
+    return null
+  }
+
+  const slug = TYPE_TO_SLUG[categoryType]
+  if (!slug) return null
+
+  // Find the category
+  const cat = affixDb.categories.find((c: any) => c.slug === slug)
+  if (!cat) return null
+
+  // Normalize the AI stat text
+  const aiFp = normalizeAffixText(statText)
+  if (!aiFp || aiFp.length < 3) return null
+
+  // Search affixes — fingerprint match + tier filter
+  let bestMatch: { value: number; level: number } | null = null
+
+  const affixes = cat.affixes || []
+  for (const affix of affixes) {
+    if (!affix.details) continue
+    const tierNum = parseInt(affix.tier, 10)
+    if (tierNum !== tier) continue
+
+    // StatType filter: "explicit" → prefix+suffix, "implicit" → skip affixes (check base_items)
+    // For now, affixes are all explicit. If statType is "implicit", we skip affixes.
+    if (statType === "implicit") continue
+
+    const affixFp = normalizeAffixText(affix.details)
+    if (!affixFp || affixFp.length < 3) continue
+
+    // Fingerprint match: mutual substring or equality
+    if (aiFp.includes(affixFp) || affixFp.includes(aiFp) || aiFp === affixFp) {
+      const val = extractTierValue(affix.details)
+      if (val === null) continue
+      const level = parseInt(affix.level, 10) || 0
+      
+      // Keep the highest level entry for this tier
+      if (!bestMatch || level > bestMatch.level) {
+        bestMatch = { value: val, level }
+      }
+    }
+  }
+
+  // Also check base item implicits for implicit tier hints
+  if (statType === "implicit" && cat.base_items) {
+    for (const base of (cat.base_items || [])) {
+      for (const imp of (base.implicits || [])) {
+        const impFp = normalizeAffixText(imp)
+        if (aiFp.includes(impFp) || impFp.includes(aiFp) || aiFp === impFp) {
+          const val = extractTierValue(imp)
+          if (val !== null) {
+            // Implicits have no tier system — use the value directly
+            if (!bestMatch || val > bestMatch.value) {
+              bestMatch = { value: val, level: 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!bestMatch) return null
+
+  return { min: Math.round(bestMatch.value) }
 }
 
 async function loadDictionary(): Promise<Record<string, string>> {
@@ -626,7 +744,8 @@ You MUST output this exact JSON structure:
   "status": "online" or "any",
   "sort": "price-asc" or "price-desc",
   "price": { "min": number_or_null, "max": number_or_null, "currency": "chaos"|"divine"|"exalted" or null },
-  "explanation": "brief Chinese summary"
+  "explanation": "brief Chinese summary",
+  "tierHints": [{ "statText": "exact stat text from stats array", "tier": 1-9, "statType": "explicit"|"implicit"|null }]
 }
 
 ## Rules
@@ -682,6 +801,20 @@ You MUST output this exact JSON structure:
    Example: "任意来源冰抗大于30" → {"text":"#% to Cold Resistance","min":30,"statType":null}
    The system handles type expansion + weight sum automatically when min/max is set on a null-statType stat.
 
+6. "tierHints": if user mentions a specific tier (T1, t1, tier1), output a tierHints array.
+   Each entry references a stat from "stats" by its exact text, plus the tier number.
+   T1 = highest tier. Only include if user specifies a tier.
+   
+   Detection: "t1"/"T1"/"tier1" → tier:1, "t2"/"T2" → tier:2 ... "t9"/"T9" → tier:9
+   statType: match the stat's statType from stats array (explicit/implicit/null)
+   Empty array [] when no tier specified. Never omit.
+   
+   Examples:
+   - "t1 电点伤戒指 生命80" → tierHints:[{"statText":"adds # to # lightning damage to attacks","tier":1,"statType":null}]
+   - "T2 火抗 鞋子 移速30" → tierHints:[{"statText":"#% to Fire Resistance","tier":2,"statType":null}]
+   - "生命80 戒指" → tierHints:[] (no tier specified)
+   - "词缀 T1 生命 胸甲" → tierHints:[{"statText":"+# to maximum Life","tier":1,"statType":"explicit"}]
+
 5. "statGroups": additional group logic for weight/count/not queries. ALWAYS an array.
    Use the flat "stats" array for individual filters (T1电点伤, 生命80+, etc.)
    Use statGroups ONLY for special group logic (weight sum, count, not).
@@ -715,6 +848,7 @@ You MUST output this exact JSON structure:
        ]
      }],
      "price": {"max":200,"currency":"exalted"},
+     "tierHints": [{"statText":"adds # to # lightning damage to attacks","tier":1,"statType":null}],
      "explanation": "电点伤+生命+抗性总和>30的戒指，预算200e"
    }
    
@@ -907,6 +1041,7 @@ interface AiIntent {
   sort: string
   price: { min: number | null; max: number | null; currency: string | null } | null
   explanation: string
+  tierHints?: TierHint[]
 }
 
 function fuzzyMatchStat(searchText: string, stats: StatEntry[]): StatEntry | null {
@@ -1444,6 +1579,51 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
           }
         }
       }
+
+      // ---- Tier Resolution: replace stat value.min with tier-specific bounds ----
+      if (intent.tierHints?.length) {
+        // Ensure full affix DB is loaded (not just fingerprint cache stub)
+        if (!(affixDb as any)?.categories) {
+          affixDb = null  // force reload
+          await loadAffixDb()
+        }
+        
+        if (affixDb && (affixDb as any).categories && intent.type) {
+          const tierOverrides: string[] = []
+          for (const hint of intent.tierHints) {
+            // Find the matching stat entry from stats cache
+            const matched = fuzzyMatchStat(hint.statText, stats)
+            if (!matched) continue
+            
+            // Find the corresponding filter in the query
+            for (const group of query.query.stats) {
+              for (const f of group.filters) {
+                if (f.disabled) continue
+                if (f.id === matched.id) {
+                  const statEntry = stats.find(s => s.id === f.id)
+                  if (!statEntry?.text) continue
+                  
+                  const bounds = resolveTierBounds(
+                    statEntry.text,
+                    intent.type!,
+                    hint.tier,
+                    hint.statType
+                  )
+                  
+                  if (bounds) {
+                    f.value.min = bounds.min
+                    tierOverrides.push(`${statEntry.text} → T${hint.tier} (min=${bounds.min})`)
+                  }
+                  break
+                }
+              }
+            }
+          }
+          if (tierOverrides.length) {
+            console.log("[PoE2] Tier overrides applied:", tierOverrides)
+          }
+        }
+      }
       
       // Collect all stat texts from groups or flat stats
       const allStatTexts = (
@@ -1571,6 +1751,21 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
         statSummary.push(`${typeLabel}(${parts.join(",")})`)
       }
 
+      // Build tier summary for display
+      const tierSummary: string[] = []
+      if (intent.tierHints?.length && intent.type) {
+        for (const hint of intent.tierHints) {
+          const matched = fuzzyMatchStat(hint.statText, stats)
+          if (matched) {
+            const statEntry = stats.find(s => s.id === matched.id)
+            if (statEntry?.text) {
+              const zh = translateEnToZh(statEntry.text) || statEntry.text
+              tierSummary.push(`T${hint.tier} ${zh}`)
+            }
+          }
+        }
+      }
+
       return {
         status: "success",
         result: {
@@ -1586,6 +1781,7 @@ async function handleMessage(msg: BgMessage): Promise<BgResponse> {
           statTypes,
           excluded,
           statSummary,
+          tierSummary,
         },
       }
     }
